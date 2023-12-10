@@ -1,6 +1,7 @@
 (ns pulsar.cfengine.portage
   (:gen-class)
   (:require
+   [clojure.java.io :as io]
    [clojure.java.shell :refer [sh]]
    [clojure.string :as string]
    [clojure.spec.alpha :as spec]
@@ -8,14 +9,17 @@
   (:import
    [java.io BufferedReader]))
 
+(def ACCEPT_KEYWORDS_LOC "/etc/portage/package.accept_keywords/")
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;Promise Specs
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (spec/def ::not-nil-string
   (spec/and
+   string?
    (comp not nil?)
-   string?))
+   (comp not string/blank?)))
 
 (spec/def ::fully-qualified-package-name
   (spec/and
@@ -23,22 +27,34 @@
    #(string/includes? % "/")))
 
 (spec/def ::string-true
-  #(string/includes? % "true"))
+  (spec/and
+   ::not-nil-string
+   #(string/includes? % "true")))
 
 (spec/def ::string-false
-  #(string/includes? % "false"))
+  (spec/and
+   ::not-nil-string
+   #(string/includes? % "false")))
+
+(spec/def ::string-true-or-false
+  (spec/or ::string-true ::string-false))
 
 (spec/def ::installed
   (spec/and
    ::not-nil-string
-   (spec/or
-    ::string-true
-    ::string-false)))
+   ::string-true-or-false))
+
+(spec/def ::oneshot
+  ::string-true-or-false)
+
+(spec/def ::accept-keywords
+  ::not-nil-string)
 
 (spec/def ::promiser ::fully-qualified-package-name)
 
 (spec/def ::promise-attributes
-  (spec/keys :req-un [::installed]))
+  (spec/keys :req-un [::installed]
+             :opt-un [::oneshot ::accept-keywords]))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -101,9 +117,14 @@
 (defmacro exit0? [sh-output]
   `(= 0 (:exit ~sh-output)))
 
+(defmacro str-to-bool [var]
+  `(if (= ~var "true") true false))
+  
 ;;(portage-install-package "sys-cluster/kubelet")
-(defn portage-install-package [fq-package]
-  (sh "/usr/bin/env" "emerge" "--quiet-build" fq-package))
+(defn portage-install-package [fq-package oneshot?]
+  (sh "/usr/bin/env" "emerge"
+      (if oneshot? "--oneshot" "")
+      "--quiet-build" fq-package))
 
 (defn portage-uninstall-package [fq-package]
   (sh "/usr/bin/env" "emerge" "--unmerge" fq-package))
@@ -111,10 +132,11 @@
 (defmulti handle-package ::desired-state)
 
 (defmethod handle-package ::installed [{installed-packages ::installed-packages
+                                        oneshot? ::oneshot
                                         package-name ::fq-package}]
   (if (package-installed? package-name installed-packages)
-    (cfepp/promise-kept (str package-name "is already installed"))
-    (let [install-output (portage-install-package package-name)]
+    (cfepp/promise-kept (str package-name " is already installed"))
+    (let [install-output (portage-install-package package-name oneshot?)]
       (if (exit0? install-output)
         (cfepp/promise-repaired (:out install-output))
         (cfepp/promise-not-kept (:err install-output))))))
@@ -122,22 +144,55 @@
 (defmethod handle-package ::not-installed [{installed-packages ::installed-packages
                                             package-name ::fq-package}]
   (if (not (package-installed? package-name installed-packages))
-    (cfepp/promise-kept (str package-name "is not installed"))
+    (cfepp/promise-kept (str package-name " is not installed"))
     (let [uninstall-output (portage-uninstall-package package-name)]
       (if (exit0? uninstall-output)
         (cfepp/promise-repaired (:out uninstall-output))
         (cfepp/promise-not-kept (:err uninstall-output))))))
 
-;;(evalute-promise "sys-cluster/kubelet" {:installed "true"})
+(defn get-first-line [filename]
+  (if (.exists (io/file filename))
+    (with-open [rdr (io/reader filename)]
+      (first (line-seq rdr)))))
+
+;;(accept-keywords-filename "sys-cluster/kubelet")
+(defn accept-keywords-filename [package-name]
+  (str ACCEPT_KEYWORDS_LOC "CFPORTAGE-" (string/replace package-name "/" "-")))
+
+;;(handle-accept-keywords {::accept-keywords "~arm64" ::fq-package "sys/cluster/kubelet"})
+;;(handle-accept-keywords {::accept-keywords nil ::fq-package "sys/cluster/kubelet"})
+(defmulti handle-accept-keywords ::accept-keywords)
+
+(defmethod handle-accept-keywords :default [{accept-keywords ::accept-keywords
+                                             package-name ::fq-package}]
+  (let [filename (accept-keywords-filename package-name)
+        desired-val (str package-name " " accept-keywords)
+        curr-val (get-first-line filename)]
+    (if (not (= curr-val desired-val))
+      (spit filename desired-val))))
+
+(defmethod handle-accept-keywords nil [{package-name ::fq-package}]
+  "No accept_keywords provided, must delete if they exist"
+  (io/delete-file (accept-keywords-filename package-name) true))
+
+
+;;(evalute-promise "sys-cluster/kubelet" {:installed "true" :oneshot "true"})
 ;;(evalute-promise "sys-cluster/kubelet" {:installed "false"})
 (defn evalute-promise [promiser {installed-input :installed
+                                 oneshot :oneshot
+                                 accept-keywords :accept_keywords
                                  :as attributes}]
-  (let [list-package-output (get-package-list)]
+  (let [package-name promiser
+        list-package-output (get-package-list)]
     (if (list-package-error? list-package-output)
       (cfepp/promise-not-kept (get-list-package-error-msg list-package-output))
-      (handle-package {::desired-state (if (= "true" installed-input) ::installed ::not-installed)
-                       ::installed-packages (get-installed-packages list-package-output)
-                       ::fq-package promiser}))))
+      (do
+        (handle-accept-keywords {::accept-keywords accept-keywords
+                                 ::fq-package package-name})
+        (handle-package {::oneshot (str-to-bool oneshot)
+                         ::desired-state (if (= "true" installed-input) ::installed ::not-installed)
+                         ::installed-packages (get-installed-packages list-package-output)
+                         ::fq-package package-name})))))
 
 (defn -main [& args]
   (cfepp/start-promise-module (BufferedReader. *in*)
