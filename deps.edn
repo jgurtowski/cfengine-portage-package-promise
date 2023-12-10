@@ -1,0 +1,7 @@
+{:paths ["src"]
+ :deps {io.github.jgurtowski/cfengine-promise-protocol {:git/tag "0.0.4"
+                                                        :git/url "git@github.com:jgurtowski/cfengine-promise-protocol-clj.git"
+                                                        :git/sha "0c51b3f"}}
+ :aliases {:uberjar
+           {:extra-deps {luchiniatwork/cambada {:mvn/version "1.0.5"}}
+            :main-opts ["-m" "cambada.uberjar" "-m" "pulsar.cfengine.portage" "--app-version" "0.0.1"]}}}
