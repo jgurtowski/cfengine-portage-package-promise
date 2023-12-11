@@ -107,13 +107,15 @@
 
 (defmacro str-to-bool [var]
   `(if (= ~var "true") true false))
-  
-;;(portage-install-package "sys-cluster/kubelet")
-(defn portage-install-package [fq-package oneshot?]
-  (sh "/usr/bin/env" "emerge"
-      (if oneshot? "--oneshot" "")
-      "--quiet-build" fq-package))
 
+;;(portage-install-package "sys-cluster/kubelet" true)
+(defn portage-install-package [fq-package oneshot?]
+  (let [sh-args (list "/usr/bin/env" "emerge"
+                      (if oneshot? "--oneshot")
+                      "--quiet-build" fq-package)]
+    (apply sh (filter (comp not nil?) sh-args))))
+
+;;(portage-uninstall-package "sys-cluster/kubelet")
 (defn portage-uninstall-package [fq-package]
   (sh "/usr/bin/env" "emerge" "--unmerge" fq-package))
 
