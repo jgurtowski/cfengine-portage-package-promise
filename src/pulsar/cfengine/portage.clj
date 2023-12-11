@@ -22,27 +22,15 @@
    (comp not string/blank?)))
 
 (spec/def ::fully-qualified-package-name
-  (spec/and
-   ::not-nil-string
+  (spec/and ::not-nil-string
    #(string/includes? % "/")))
 
-(spec/def ::string-true
-  (spec/and
-   ::not-nil-string
-   #(string/includes? % "true")))
-
-(spec/def ::string-false
-  (spec/and
-   ::not-nil-string
-   #(string/includes? % "false")))
-
 (spec/def ::string-true-or-false
-  (spec/or ::string-true ::string-false))
+  (spec/and ::not-nil-string
+            #(re-matches #"true|false" %)))
 
 (spec/def ::installed
-  (spec/and
-   ::not-nil-string
-   ::string-true-or-false))
+  ::string-true-or-false)
 
 (spec/def ::oneshot
   ::string-true-or-false)
