@@ -1,7 +1,13 @@
 {:paths ["src"]
- :deps {io.github.jgurtowski/cfengine-promise-protocol {:git/tag "0.0.4"
+ :deps {io.github.jgurtowski/cfengine-promise-protocol {:git/tag "0.0.6"
                                                         :git/url "git@github.com:jgurtowski/cfengine-promise-protocol-clj.git"
-                                                        :git/sha "0c51b3f"}}
- :aliases {:uberjar
-           {:extra-deps {luchiniatwork/cambada {:mvn/version "1.0.5"}}
-            :main-opts ["-m" "cambada.uberjar" "-m" "pulsar.cfengine.portage" "--app-version" "0.0.1"]}}}
+                                                        :git/sha "478a0dc2"}
+        com.github.clj-easy/graal-build-time {:mvn/version "1.0.5"}}
+ :aliases {
+           :uberjar {:extra-deps {luchiniatwork/cambada {:mvn/version "1.0.5"}}
+                     :main-opts ["-m" "cambada.uberjar" "-m" "pulsar.cfengine.portage" "--app-version" "0.0.1"]}
+           :test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.87.1366"}}
+                  :main-opts ["-m" "kaocha.runner"]}}}
+
+;;TODO add to above build alias
+;;~/graalvm-jdk-21.0.1+12.1/bin/native-image --no-fallback -jar target/cfengine-portage-package-promise-0.0.1-standalone.jar --initialize-at-build-time=clojure,cheshire --initialize-at-build-time=com.fasterxml.jackson --features=clj_easy.graal_build_time.InitClojureClasses

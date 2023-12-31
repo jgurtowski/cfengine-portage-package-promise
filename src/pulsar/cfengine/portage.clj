@@ -5,7 +5,7 @@
    [clojure.java.shell :refer [sh]]
    [clojure.string :as string]
    [clojure.spec.alpha :as spec]
-   [cfengine-promise-protocol :as cfepp])
+   [pulsar.cfengine.cfengine-promise-protocol :as cfepp])
   (:import
    [java.io BufferedReader]))
 
